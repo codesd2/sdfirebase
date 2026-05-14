@@ -26,12 +26,13 @@ import {
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'motion/react';
 import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
-import { auth, googleProvider, createSecondaryUser } from '../../lib/firebase';
+import { auth, googleProvider, createSecondaryUser, resetPassword } from '../../lib/firebase';
 
 export default function AdminDashboard() {
   const { user, logout, isAdmin, loading: authLoading } = useAuth();
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [loggingIn, setLoggingIn] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'orders' | 'settings' | 'categories' | 'customers' | 'staff'>('overview');
   const [products, setProducts] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
@@ -258,11 +259,27 @@ export default function AdminDashboard() {
     setLoggingIn(true);
     try {
       await signInWithEmailAndPassword(auth, loginForm.email, loginForm.password);
-      toast.success('Welcome back, Admin');
+      toast.success('Welcome back');
     } catch (err: any) {
-      toast.error(err.message || 'Login failed. Ensure you are an admin.');
+      toast.error(err.message || 'Login failed.');
     } finally {
       setLoggingIn(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!loginForm.email) {
+      toast.error('Please enter your email/username first');
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      await resetPassword(loginForm.email);
+      toast.success('Password reset email sent!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to send reset email');
+    } finally {
+      setResettingPassword(false);
     }
   };
 
@@ -310,7 +327,7 @@ export default function AdminDashboard() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Email Address</label>
+              <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Username / Email</label>
               <input 
                 type="email"
                 required
@@ -320,7 +337,16 @@ export default function AdminDashboard() {
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Password</label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest">Password</label>
+                <button 
+                  type="button"
+                  onClick={handleForgotPassword}
+                  className="text-[10px] font-bold text-jewelry-gold hover:underline"
+                >
+                  Forgot Password?
+                </button>
+              </div>
               <input 
                 type="password"
                 required
@@ -331,10 +357,10 @@ export default function AdminDashboard() {
             </div>
             <button 
               type="submit" 
-              disabled={loggingIn}
+              disabled={loggingIn || resettingPassword}
               className="w-full bg-jewelry-gold text-white py-4 rounded-xl font-bold shadow-lg shadow-jewelry-gold/20 hover:bg-jewelry-gold-dark transition-all disabled:opacity-50"
             >
-              {loggingIn ? 'Authenticating...' : 'Enter Dashboard'}
+              {loggingIn ? 'Authenticating...' : resettingPassword ? 'Sending Reset...' : 'Enter Dashboard'}
             </button>
           </form>
           <p className="mt-6 text-center text-[10px] text-gray-400">
@@ -346,48 +372,94 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="pt-24 pb-20 bg-gray-50 min-h-screen">
-      <div className="container mx-auto px-4 max-w-7xl">
-        <header className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
-          <div>
-            <h1 className="text-3xl font-serif font-bold">Admin Dashboard</h1>
-            <p className="text-gray-500">Manage your jewelry empire</p>
+    <div className="flex flex-col lg:flex-row min-h-screen bg-gray-50 pt-16 lg:pt-0">
+      {/* Mobile Header */}
+      <div className="lg:hidden bg-white border-b border-gray-200 p-4 fixed top-16 left-0 right-0 z-40 flex justify-between items-center">
+        <h1 className="text-xl font-serif font-bold text-jewelry-gold uppercase tracking-tighter">Om Collections</h1>
+        <button onClick={() => logout()} className="text-red-500"><LogOut className="w-5 h-5" /></button>
+      </div>
+
+      {/* Sidebar - Matches user's CSS selector request for a static nav block */}
+      <aside className="w-full lg:w-72 bg-white border-r border-gray-200 lg:h-screen lg:fixed lg:left-0 lg:top-0 z-50 overflow-y-auto">
+        <div id="admin-sidebar" className="p-8 h-full flex flex-col w-[288px] static shrink-0">
+          <div className="mb-10 hidden lg:block">
+            <h1 className="text-2xl font-serif font-bold text-jewelry-gold tracking-tight">ADMIN PANEL</h1>
+            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em] mt-1">Om Collections</p>
           </div>
-          <div className="flex bg-white p-1 rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+
+          <nav className="flex-grow space-y-1">
             {[
               { id: 'overview', icon: LayoutDashboard, label: 'Overview' },
               { id: 'products', icon: Package, label: 'Products' },
               { id: 'orders', icon: ShoppingBag, label: 'Orders' },
               { id: 'customers', icon: Users, label: 'Customers' },
-              { id: 'staff', icon: Shield, label: 'Staff' },
+              { id: 'staff', icon: Shield, label: 'Staff members' },
               { id: 'categories', icon: Package, label: 'Categories' },
               { id: 'settings', icon: Settings, label: 'Settings' },
             ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all shrink-0 ${activeTab === tab.id ? 'bg-jewelry-gold text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
+                className={`w-full flex items-center px-4 py-4 rounded-2xl text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-jewelry-gold text-white shadow-lg shadow-jewelry-gold/20' : 'text-gray-500 hover:bg-gray-50'}`}
               >
-                <tab.icon className="w-4 h-4 mr-2" />
+                <tab.icon className={`w-5 h-5 mr-3 ${activeTab === tab.id ? 'text-white' : 'text-gray-400'}`} />
                 {tab.label}
               </button>
             ))}
+          </nav>
+
+          <div className="mt-auto pt-8 border-t border-gray-100">
+            <div className="flex items-center mb-6 px-2">
+              <div className="w-10 h-10 rounded-full bg-jewelry-cream border border-jewelry-gold/20 flex items-center justify-center text-jewelry-gold font-bold mr-3 uppercase">
+                {user?.email?.charAt(0) || 'A'}
+              </div>
+              <div className="overflow-hidden">
+                <p className="text-xs font-bold text-gray-900 truncate">{user?.email}</p>
+                <p className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">{user?.role}</p>
+              </div>
+            </div>
             <button
               onClick={() => logout()}
-              className="flex items-center px-4 py-2 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50 transition-all shrink-0"
+              className="w-full flex items-center justify-center px-4 py-3 rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 transition-all border border-red-100"
             >
               <LogOut className="w-4 h-4 mr-2" />
-              Logout
+              Sign Out
             </button>
           </div>
-        </header>
+        </div>
+      </aside>
 
-        {loading ? (
-          <div className="text-center py-20 text-jewelry-gold">Loading store data...</div>
-        ) : (
-          <div className="space-y-8">
-            {activeTab === 'overview' && (
-              <div className="space-y-8">
+      {/* Main Content Area - Static width container within fluid background */}
+      <main className="flex-grow lg:ml-72 p-4 lg:p-12">
+        <div className="max-w-6xl mx-auto">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-40">
+              <div className="w-10 h-10 border-4 border-jewelry-gold border-t-transparent rounded-full animate-spin mb-4"></div>
+              <p className="text-jewelry-gold font-bold text-sm tracking-widest uppercase">Fetching System Data</p>
+            </div>
+          ) : (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-10"
+              >
+                <div className="flex justify-between items-end">
+                  <div>
+                    <h2 className="text-4xl font-serif font-bold text-gray-900 capitalize">{activeTab}</h2>
+                    <p className="text-gray-500 mt-1">Manage and monitor your jewelry store operations</p>
+                  </div>
+                  <div className="hidden lg:flex items-center text-xs font-bold text-gray-400 uppercase tracking-widest bg-white px-4 py-2 rounded-full border border-gray-100 shadow-sm">
+                    <Clock className="w-3 h-3 mr-2" /> {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </div>
+                </div>
+
+                {/* Tab Contents */}
+                {activeTab === 'overview' && (
+                  <div className="space-y-10">
                 {/* Bulk Actions for empty stores */}
                 {products.length === 0 && (
                   <div className="bg-jewelry-gold/5 border border-jewelry-gold/20 p-8 rounded-3xl text-center">
@@ -732,8 +804,8 @@ export default function AdminDashboard() {
                   <table className="w-full text-left">
                     <thead className="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                       <tr>
-                        <th className="px-8 py-4">User</th>
-                        <th className="px-8 py-4">Role</th>
+                        <th className="px-8 py-4">Username</th>
+                        <th className="px-8 py-4">Status</th>
                         <th className="px-8 py-4">System ID</th>
                         <th className="px-8 py-4 text-right">Actions</th>
                       </tr>
@@ -742,22 +814,25 @@ export default function AdminDashboard() {
                       {staff.map((u, idx) => (
                         <tr key={u.id || idx} className="hover:bg-gray-50 transition-colors">
                           <td className="px-8 py-6">
-                            <p className="font-bold text-gray-900">{u.email}</p>
+                            <p className="font-bold text-gray-930">{u.email}</p>
                             {u.email === 'itssanjaydutta@gmail.com' && (
-                              <span className="text-[10px] text-jewelry-gold font-bold uppercase tracking-wider">Primary System Owner</span>
+                              <span className="text-[10px] text-jewelry-gold font-bold uppercase tracking-wider block mt-1">System Founder</span>
                             )}
                           </td>
                           <td className="px-8 py-6">
-                            <select 
-                              value={u.role || 'user'}
-                              disabled={u.email === 'itssanjaydutta@gmail.com'}
-                              onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
-                              className="text-xs font-bold bg-gray-50 border-none rounded-lg px-3 py-1 focus:ring-1 focus:ring-jewelry-gold disabled:opacity-50"
-                            >
-                              <option value="user">Standard User</option>
-                              <option value="staff">Staff/Editor</option>
-                              <option value="admin">Administrator</option>
-                            </select>
+                            <div className="flex items-center">
+                              <select 
+                                value={u.role || 'user'}
+                                disabled={u.email === 'itssanjaydutta@gmail.com'}
+                                onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                                className="text-xs font-bold bg-gray-50 border-none rounded-lg px-3 py-1 focus:ring-1 focus:ring-jewelry-gold disabled:opacity-50 mr-2"
+                              >
+                                <option value="user">Standard User</option>
+                                <option value="staff">Staff/Editor</option>
+                                <option value="admin">Administrator</option>
+                              </select>
+                              <div className={`w-2 h-2 rounded-full ${u.role === 'admin' ? 'bg-indigo-500' : u.role === 'staff' ? 'bg-jewelry-gold' : 'bg-gray-300'}`}></div>
+                            </div>
                           </td>
                           <td className="px-8 py-6">
                             <code className="text-[10px] bg-gray-100 p-1 rounded font-mono text-gray-400">{u.id}</code>
@@ -824,9 +899,11 @@ export default function AdminDashboard() {
                 </section>
               </div>
             )}
-          </div>
-        )}
-      </div>
+              </motion.div>
+            </AnimatePresence>
+          )}
+        </div>
+      </main>
 
       {/* User Modal */}
       {showUserModal && (
@@ -843,11 +920,11 @@ export default function AdminDashboard() {
             
             <form onSubmit={handleCreateUser} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Email Address</label>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Username / Email</label>
                 <input 
                   type="email"
                   required
-                  placeholder="staff@jewels.com"
+                  placeholder="name@jewels.com"
                   className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50"
                   value={newUserForm.email}
                   onChange={e => setNewUserForm({...newUserForm, email: e.target.value})}

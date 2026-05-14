@@ -1,35 +1,36 @@
 # Deployment Guide for Hostinger
 
-To ensure your changes are reflected on your live site on Hostinger, follow these steps:
+## 1. Fixing the "Plain Page" (White Screen) Issue
+If your domain shows a blank or plain page, it is because you uploaded the **source code** instead of the **build output**.
 
-## 1. Firebase Authentication Setup (CRITICAL)
-In order for your domain (e.g., `yourdomain.com`) to be allowed to sign in users:
-1. Go to the [Firebase Console](https://console.firebase.google.com/).
-2. Select your project.
-3. Navigate to **Authentication** > **Settings** > **Authorized domains**.
-4. Click **Add domain** and enter your EXACT domain: `om.wildtourinkaziranga.in`
-   *   **Note**: Do not include `https://` or trailing slashes. Only the hostname.
+### The Solution:
+1.  **Build the app**: In your terminal, run: `npm run build`
+2.  **Locate the output**: This creates a folder named `dist` in your project.
+3.  **Upload to Hostinger**: 
+    *   Open Hostinger **File Manager**.
+    *   Go to `public_html`.
+    *   **Delete** any existing files you uploaded (like `src`, `public`, `package.json`).
+    *   **Upload the CONTENTS of the `dist` folder** directly into `public_html`.
+    *   Your `public_html` should contain `index.html`, `assets/`, etc., at the top level.
 
-## 2. Enable Email/Password Login (FIXES auth/operation-not-allowed)
-If you see the error `auth/operation-not-allowed` when creating users, it means this provider is disabled.
-1. In Firebase Console, go to **Authentication** > **Sign-in method**.
-2. Click **Add new provider** > **Email/Password**.
-3. Toggle it to **Enabled** and click **Save**.
+---
 
-## 3. How to Update Hostinger Directly
+## 2. Finding Authentication in Firebase Console (2025 UI)
+If you don't see "Authentication" in your sidebar:
+1.  Look for the **"Build"** or **"Security"** category in the left sidebar and click the arrow to expand it.
+2.  If it's still missing, click on **"All products"** (often at the bottom of the list) and search for **Authentication**.
+3.  **CRITICAL**: Once inside Authentication, go to the **Sign-in method** tab.
+4.  Click **Add new provider** -> **Email/Password** -> **Enable** -> **Save**. (This fixes the `auth/operation-not-allowed` error).
 
-### Option A: Manual Upload (Easiest)
-1. Run `npm run build` in your development environment.
-2. This creates a `dist` folder.
-3. Use Hostinger's **File Manager** or an **FTP client** (like FileZilla) to upload the contents of the `dist` folder to your site's root directory (usually `public_html`).
+---
 
-### Option B: Hostinger Git Integration (Recommended for "Direct" updates)
-Hostinger supports deploying directly from a Git repository (like GitHub).
-1. Push your code to a GitHub repository.
-2. In Hostinger Panel, go to **Advanced** > **GIT**.
-3. Create a new repository link.
-4. Set the **Install Directory** to your site root.
-5. Every time you push to GitHub, click **Deploy** in Hostinger to update your site.
+## 3. Firebase Authorized Domains
+1.  In Firebase Console: **Authentication** > **Settings** > **Authorized domains**.
+2.  Click **Add domain**.
+3.  Add exactly: `wildtourinkaziranga.in` (and also `om.wildtourinkaziranga.in` if you use that).
+4.  **Note**: Do not include `https://` or `/`.
 
-### Note on Routing
-If you find that refreshing a page (like `/cart`) gives a 404 error on Hostinger, ensure the `.htaccess` file (which I've added to the `/public` folder) is uploaded to your server's root.
+---
+
+## 4. Routing Fix (Refreshing 404)
+I have added a `.htaccess` file in the `public` folder. When you run `npm run build`, it will be moved to the `dist` folder. Make sure this file is uploaded to your Hostinger root alongside your `index.html`. This ensures that when you refresh a page like `/cart`, it doesn't show a 404 error.
