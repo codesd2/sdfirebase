@@ -21,7 +21,9 @@ import {
   UserPlus,
   ExternalLink,
   Shield,
-  Upload
+  Upload,
+  Menu,
+  ChevronLeft
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'motion/react';
@@ -33,7 +35,7 @@ export default function AdminDashboard() {
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [loggingIn, setLoggingIn] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'orders' | 'settings' | 'categories' | 'customers' | 'staff'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'orders' | 'settings' | 'categories' | 'customers' | 'staff' | 'delivery'>('overview');
   const [products, setProducts] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
@@ -51,8 +53,10 @@ export default function AdminDashboard() {
   const [showProductModal, setShowProductModal] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [editingUser, setEditingUser] = useState<any>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  const [newUserForm, setNewUserForm] = useState({ email: '', password: '', role: 'staff' });
+  const [newUserForm, setNewUserForm] = useState({ email: '', password: '', role: 'staff', username: '' });
   const [creatingUser, setCreatingUser] = useState(false);
 
   // Form states for new/edit product
@@ -118,20 +122,44 @@ export default function AdminDashboard() {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newUserForm.password.length < 6) {
+    if (!newUserForm.email) {
+      toast.error('Email is required');
+      return;
+    }
+    // Password only required for new accounts
+    if (!editingUser && (!newUserForm.password || newUserForm.password.length < 6)) {
       toast.error('Password must be at least 6 characters');
       return;
     }
     setCreatingUser(true);
     try {
-      const newUser = await createSecondaryUser(newUserForm.email, newUserForm.password);
-      await userService.updateUserRole(newUser.uid, newUserForm.role);
-      toast.success('User created successfully');
+      if (editingUser) {
+        const updateData: any = { 
+          email: newUserForm.email, 
+          role: newUserForm.role,
+          username: newUserForm.username
+        };
+        if (newUserForm.password) {
+          updateData.initialPassword = newUserForm.password;
+        }
+        await userService.updateUser(editingUser.id, updateData);
+        toast.success('User updated successfully');
+      } else {
+        const newUser = await createSecondaryUser(newUserForm.email, newUserForm.password);
+        await userService.updateUser(newUser.uid, { 
+          email: newUserForm.email, 
+          role: newUserForm.role,
+          username: newUserForm.username,
+          initialPassword: newUserForm.password // Store it since user requested it in DB
+        });
+        toast.success('User created successfully');
+      }
       setShowUserModal(false);
-      setNewUserForm({ email: '', password: '', role: 'staff' });
+      setEditingUser(null);
+      setNewUserForm({ email: '', password: '', role: 'staff', username: '' });
       fetchData();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to create user');
+      toast.error(err.message || 'Failed to process user');
     } finally {
       setCreatingUser(false);
     }
@@ -139,7 +167,7 @@ export default function AdminDashboard() {
 
   const handleUpdateUserRole = async (uid: string, role: string) => {
     try {
-      await userService.updateUserRole(uid, role);
+      await userService.updateUser(uid, { role });
       toast.success('Role updated');
       fetchData();
     } catch (err) {
@@ -169,8 +197,8 @@ export default function AdminDashboard() {
       setEditingProduct(null);
       setProductForm({ name: '', description: '', price: 0, category: settings.categories[0], stock: 10, images: [''] });
       fetchData();
-    } catch (err) {
-      toast.error('Operation failed');
+    } catch (err: any) {
+      toast.error(err.message || 'Operation failed');
     }
   };
 
@@ -192,8 +220,8 @@ export default function AdminDashboard() {
     try {
       await settingsService.updateSettings(settings);
       toast.success('Settings saved');
-    } catch (err) {
-      toast.error('Failed to save settings');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save settings');
     }
   };
 
@@ -380,57 +408,73 @@ export default function AdminDashboard() {
       </div>
 
       {/* Sidebar - Matches user's CSS selector request for a static nav block */}
-      <aside className="w-full lg:w-72 bg-white border-r border-gray-200 lg:h-screen lg:fixed lg:left-0 lg:top-0 z-50 overflow-y-auto">
-        <div id="admin-sidebar" className="p-8 h-full flex flex-col w-[288px] static shrink-0">
-          <div className="mb-10 hidden lg:block">
-            <h1 className="text-2xl font-serif font-bold text-jewelry-gold tracking-tight">ADMIN PANEL</h1>
-            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em] mt-1">Om Collections</p>
+      <aside className={`bg-white border-r border-gray-200 lg:h-screen lg:fixed lg:left-0 lg:top-0 z-50 overflow-y-auto transition-all duration-300 ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72'}`}>
+        <div id="admin-sidebar" className="p-4 h-full flex flex-col transition-all duration-300">
+          <div className={`mb-10 hidden lg:flex items-center ${isSidebarCollapsed ? 'flex-col space-y-4' : 'justify-between px-2'} overflow-hidden`}>
+            <div className={`overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+              <h1 className="font-serif font-bold text-jewelry-gold tracking-tight whitespace-nowrap text-2xl">
+                ADMIN PANEL
+              </h1>
+              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em] mt-1">Om Collections</p>
+            </div>
+            <button 
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className={`p-2 rounded-xl hover:bg-gray-50 text-gray-400 transition-all border border-gray-100 items-center justify-center flex shrink-0 ${isSidebarCollapsed ? 'w-12 h-12' : ''}`}
+              title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              {isSidebarCollapsed ? <Menu className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+            </button>
           </div>
 
-          <nav className="flex-grow space-y-1">
+          <nav className="flex-grow space-y-2 w-full">
             {[
               { id: 'overview', icon: LayoutDashboard, label: 'Overview' },
               { id: 'products', icon: Package, label: 'Products' },
               { id: 'orders', icon: ShoppingBag, label: 'Orders' },
               { id: 'customers', icon: Users, label: 'Customers' },
               { id: 'staff', icon: Shield, label: 'Staff members' },
+              { id: 'delivery', icon: MapPin, label: 'Delivery' },
               { id: 'categories', icon: Package, label: 'Categories' },
               { id: 'settings', icon: Settings, label: 'Settings' },
             ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`w-full flex items-center px-4 py-4 rounded-2xl text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-jewelry-gold text-white shadow-lg shadow-jewelry-gold/20' : 'text-gray-500 hover:bg-gray-50'}`}
+                title={isSidebarCollapsed ? tab.label : ''}
+                className={`w-full flex items-center rounded-2xl text-sm font-bold transition-all group ${activeTab === tab.id ? 'bg-jewelry-gold text-white shadow-lg shadow-jewelry-gold/20' : 'text-gray-500 hover:bg-gray-50'} ${isSidebarCollapsed ? 'h-12 justify-center' : 'px-4 py-4'}`}
               >
-                <tab.icon className={`w-5 h-5 mr-3 ${activeTab === tab.id ? 'text-white' : 'text-gray-400'}`} />
-                {tab.label}
+                <tab.icon className={`w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110 ${isSidebarCollapsed ? '' : 'mr-3'} ${activeTab === tab.id ? 'text-white' : 'text-gray-400'}`} />
+                {!isSidebarCollapsed && <span className="truncate">{tab.label}</span>}
               </button>
             ))}
           </nav>
 
-          <div className="mt-auto pt-8 border-t border-gray-100">
-            <div className="flex items-center mb-6 px-2">
-              <div className="w-10 h-10 rounded-full bg-jewelry-cream border border-jewelry-gold/20 flex items-center justify-center text-jewelry-gold font-bold mr-3 uppercase">
+          <div className="mt-auto pt-8 border-t border-gray-100 w-full space-y-4">
+            <div className={`flex items-center overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? 'justify-center px-0' : 'px-2'}`}>
+              <div className="w-10 h-10 shrink-0 rounded-full bg-jewelry-cream border border-jewelry-gold/20 flex items-center justify-center text-jewelry-gold font-bold uppercase">
                 {user?.email?.charAt(0) || 'A'}
               </div>
-              <div className="overflow-hidden">
-                <p className="text-xs font-bold text-gray-900 truncate">{user?.email}</p>
-                <p className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">{user?.role}</p>
-              </div>
+              {!isSidebarCollapsed && (
+                <div className="ml-3 overflow-hidden">
+                  <p className="text-xs font-bold text-gray-900 truncate">{user?.email}</p>
+                  <p className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">{user?.role}</p>
+                </div>
+              )}
             </div>
             <button
               onClick={() => logout()}
-              className="w-full flex items-center justify-center px-4 py-3 rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 transition-all border border-red-100"
+              title={isSidebarCollapsed ? "Sign Out" : ""}
+              className={`w-full flex items-center justify-center rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 transition-all border border-red-100 group ${isSidebarCollapsed ? 'h-12' : 'px-4 py-3'}`}
             >
-              <LogOut className="w-4 h-4 mr-2" />
-              Sign Out
+              <LogOut className={`w-4 h-4 transition-transform group-hover:translate-x-1 flex-shrink-0`} />
+              {!isSidebarCollapsed && <span className="ml-2">Sign Out</span>}
             </button>
           </div>
         </div>
       </aside>
 
       {/* Main Content Area - Static width container within fluid background */}
-      <main className="flex-grow lg:ml-72 p-4 lg:p-12">
+      <main className={`flex-grow transition-all duration-300 p-4 lg:p-12 ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-72'}`}>
         <div className="max-w-6xl mx-auto">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-40">
@@ -664,9 +708,13 @@ export default function AdminDashboard() {
                     </button>
                   </div>
                 </section>
+              </div>
+            )}
 
+            {activeTab === 'delivery' && (
+              <div className="max-w-2xl mx-auto">
                 <section className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                  <div className="mb-6">
+                  <div className="mb-6 flex justify-between items-center">
                     <h3 className="text-xl font-serif font-bold">Delivery Cities & Charges</h3>
                   </div>
 
@@ -698,10 +746,10 @@ export default function AdminDashboard() {
 
                   <div className="space-y-3">
                     {settings.cities?.map((city: any, idx: number) => (
-                      <div key={idx} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                      <div key={idx} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100 transition-all hover:border-jewelry-gold/20">
                         <div>
-                          <p className="font-bold">{city.name}</p>
-                          <p className="text-xs text-jewelry-gold">₹{city.charge} Delivery Charge</p>
+                          <p className="font-bold text-gray-900">{city.name}</p>
+                          <p className="text-xs text-jewelry-gold font-bold tracking-wider">₹{city.charge} CHARGE</p>
                         </div>
                         <button 
                           onClick={() => removeCity(idx)}
@@ -712,16 +760,19 @@ export default function AdminDashboard() {
                       </div>
                     ))}
                     {(!settings.cities || settings.cities.length === 0) && (
-                      <p className="text-center py-4 text-gray-400 text-sm italic">No cities added for delivery.</p>
+                      <div className="text-center py-12 border-2 border-dashed border-gray-100 rounded-3xl">
+                        <MapPin className="w-10 h-10 text-gray-200 mx-auto mb-2" />
+                        <p className="text-gray-400 text-sm">No cities configured for delivery.</p>
+                      </div>
                     )}
                   </div>
                   
                   {settings.cities?.length > 0 && (
                     <button 
                       onClick={handleSaveSettings}
-                      className="w-full mt-6 bg-gray-900 text-white py-4 rounded-xl font-bold hover:bg-jewelry-gold transition-all"
+                      className="w-full mt-8 bg-jewelry-gold text-white py-4 rounded-xl font-bold shadow-lg shadow-jewelry-gold/20 hover:bg-jewelry-gold-dark transition-all"
                     >
-                      Save City List
+                      Confirm Delivery Locations
                     </button>
                   )}
                 </section>
@@ -791,10 +842,14 @@ export default function AdminDashboard() {
                 <div className="p-8 border-b border-gray-50 flex justify-between items-center">
                   <div>
                     <h3 className="text-xl font-serif font-bold">System Users</h3>
-                    <p className="text-sm text-gray-500">Manage staff access and roles</p>
+                    <p className="text-sm text-gray-500">Manage staff access, roles, and credentials</p>
                   </div>
                   <button 
-                    onClick={() => setShowUserModal(true)}
+                    onClick={() => {
+                        setEditingUser(null);
+                        setNewUserForm({ email: '', password: '', role: 'staff', username: '' });
+                        setShowUserModal(true);
+                    }}
                     className="bg-jewelry-gold text-white px-6 py-2 rounded-xl text-sm font-bold flex items-center hover:bg-jewelry-gold-dark transition-all"
                   >
                     <UserPlus className="w-4 h-4 mr-2" /> Add Staff Member
@@ -804,9 +859,9 @@ export default function AdminDashboard() {
                   <table className="w-full text-left">
                     <thead className="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                       <tr>
+                        <th className="px-8 py-4">Staff Member</th>
                         <th className="px-8 py-4">Username</th>
-                        <th className="px-8 py-4">Status</th>
-                        <th className="px-8 py-4">System ID</th>
+                        <th className="px-8 py-4">Status / Role</th>
                         <th className="px-8 py-4 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -814,9 +869,16 @@ export default function AdminDashboard() {
                       {staff.map((u, idx) => (
                         <tr key={u.id || idx} className="hover:bg-gray-50 transition-colors">
                           <td className="px-8 py-6">
-                            <p className="font-bold text-gray-930">{u.email}</p>
+                            <p className="font-bold text-gray-900">{u.email}</p>
+                            <p className="text-[10px] text-gray-400 font-mono">{u.id}</p>
                             {u.email === 'itssanjaydutta@gmail.com' && (
                               <span className="text-[10px] text-jewelry-gold font-bold uppercase tracking-wider block mt-1">System Founder</span>
+                            )}
+                          </td>
+                          <td className="px-8 py-6">
+                            <p className="text-sm font-medium">{u.username || 'N/A'}</p>
+                            {u.initialPassword && (
+                              <p className="text-[9px] text-gray-300 font-mono mt-1 select-all" title="Recorded password">PWD: {u.initialPassword}</p>
                             )}
                           </td>
                           <td className="px-8 py-6">
@@ -834,10 +896,32 @@ export default function AdminDashboard() {
                               <div className={`w-2 h-2 rounded-full ${u.role === 'admin' ? 'bg-indigo-500' : u.role === 'staff' ? 'bg-jewelry-gold' : 'bg-gray-300'}`}></div>
                             </div>
                           </td>
-                          <td className="px-8 py-6">
-                            <code className="text-[10px] bg-gray-100 p-1 rounded font-mono text-gray-400">{u.id}</code>
-                          </td>
-                          <td className="px-8 py-6 text-right">
+                          <td className="px-8 py-6 text-right flex items-center justify-end space-x-2">
+                             <button 
+                                onClick={async () => {
+                                  try {
+                                    await resetPassword(u.email);
+                                    toast.success('Password reset email sent to staff');
+                                  } catch (err) {
+                                    toast.error('Failed to send reset email');
+                                  }
+                                }}
+                                className="p-2 text-jewelry-gold hover:bg-jewelry-cream rounded-xl transition-colors"
+                                title="Send Reset Password Email"
+                              >
+                                <Clock className="w-4 h-4" />
+                              </button>
+                            <button 
+                              onClick={() => {
+                                setEditingUser(u);
+                                setNewUserForm({ email: u.email, password: u.initialPassword || '', role: u.role, username: u.username || '' });
+                                setShowUserModal(true);
+                              }}
+                              className="p-2 text-blue-500 hover:bg-blue-50 rounded-xl transition-colors"
+                              title="Edit User Details"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
                             {u.email !== 'itssanjaydutta@gmail.com' && (
                               <button 
                                 onClick={() => handleDeleteUser(u.id)}
@@ -914,30 +998,51 @@ export default function AdminDashboard() {
             className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl"
           >
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-serif font-bold">Add Staff Member</h3>
-              <button onClick={() => setShowUserModal(false)} className="text-gray-400 hover:text-gray-600"><XCircle /></button>
+              <h3 className="text-2xl font-serif font-bold">{editingUser ? 'Edit System User' : 'Add Staff Member'}</h3>
+              <button 
+                onClick={() => {
+                  setShowUserModal(false);
+                  setEditingUser(null);
+                }} 
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <XCircle />
+              </button>
             </div>
             
             <form onSubmit={handleCreateUser} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Username / Email</label>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Display Username</label>
+                <input 
+                  type="text"
+                  required
+                  placeholder="e.g. John Doe"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white transition-all"
+                  value={newUserForm.username}
+                  onChange={e => setNewUserForm({...newUserForm, username: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Email Address (Login ID)</label>
                 <input 
                   type="email"
                   required
                   placeholder="name@jewels.com"
-                  className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white transition-all"
                   value={newUserForm.email}
                   onChange={e => setNewUserForm({...newUserForm, email: e.target.value})}
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Initial Password</label>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
+                  {editingUser ? 'Update Password (Database Record Only)' : 'Initial login Password'}
+                </label>
                 <input 
                   type="password"
-                  required
+                  required={!editingUser}
                   minLength={6}
-                  placeholder="Min 6 characters"
-                  className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50"
+                  placeholder={editingUser ? "Leave blank to keep same" : "Min 6 characters"}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white transition-all"
                   value={newUserForm.password}
                   onChange={e => setNewUserForm({...newUserForm, password: e.target.value})}
                 />
@@ -957,9 +1062,13 @@ export default function AdminDashboard() {
 
               <div className="bg-blue-50 p-4 rounded-xl flex items-start space-x-3 mb-6">
                 <Shield className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
-                <p className="text-[10px] text-blue-600 leading-relaxed">
-                  Creating a user will enable them to log in with these credentials. Ensure the staff member changes their password after their first login.
-                </p>
+                <div className="text-[10px] text-blue-600 leading-relaxed">
+                  {editingUser ? (
+                    <p>Updating username/email here only changes the display in records. To change the actual login password, use the "Reset Password" button in the staff list.</p>
+                  ) : (
+                    <p>Creating a user will enable them to log in with these credentials. Ensure the staff member changes their password after their first login.</p>
+                  )}
+                </div>
               </div>
 
               <button 
@@ -967,7 +1076,7 @@ export default function AdminDashboard() {
                 disabled={creatingUser}
                 className="w-full bg-jewelry-gold text-white py-4 rounded-xl font-bold shadow-lg shadow-jewelry-gold/20 disabled:opacity-50"
               >
-                {creatingUser ? 'Creating System Account...' : 'Create Account'}
+                {creatingUser ? (editingUser ? 'Saving Changes...' : 'Creating System Account...') : (editingUser ? 'Save Changes' : 'Create Account')}
               </button>
             </form>
           </motion.div>

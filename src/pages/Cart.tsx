@@ -14,7 +14,7 @@ export default function Cart() {
           <ShoppingBag className="w-16 h-16 text-gray-200 mx-auto mb-6" />
           <h1 className="text-3xl font-serif font-bold mb-4">Your bag is empty</h1>
           <p className="text-gray-500 mb-8">It looks like you haven't added any elegant pieces to your collection yet.</p>
-          <Link to="/shop" className="bg-jewelry-gold text-white px-8 py-3 rounded-full font-bold hover:bg-jewelry-gold-dark transition-all">
+          <Link to="/" className="bg-jewelry-gold text-white px-8 py-3 rounded-full font-bold hover:bg-jewelry-gold-dark transition-all">
             Start Shopping
           </Link>
         </div>

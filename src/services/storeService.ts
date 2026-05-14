@@ -56,13 +56,14 @@ export const productService = {
 
   async addProduct(product: any) {
     const path = 'products';
+    const { id, ...data } = product;
     try {
       const docRef = await addDoc(collection(db, path), {
-        ...product,
+        ...data,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
-      return { id: docRef.id, ...product };
+      return { id: docRef.id, ...data };
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, path);
     }
@@ -70,10 +71,11 @@ export const productService = {
 
   async updateProduct(id: string, updates: any) {
     const path = `products/${id}`;
+    const { id: _, ...data } = updates;
     try {
       const docRef = doc(db, 'products', id);
       await updateDoc(docRef, {
-        ...updates,
+        ...data,
         updatedAt: serverTimestamp()
       });
     } catch (error) {
@@ -173,10 +175,13 @@ export const userService = {
     }
   },
 
-  async updateUserRole(uid: string, role: string) {
+  async updateUser(uid: string, data: any) {
     const path = `users/${uid}`;
     try {
-      await setDoc(doc(db, 'users', uid), { role }, { merge: true });
+      await setDoc(doc(db, 'users', uid), { 
+        ...data,
+        updatedAt: serverTimestamp() 
+      }, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, path);
     }

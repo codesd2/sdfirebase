@@ -11,6 +11,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 8;
 
   useEffect(() => {
     const fetchData = async () => {
@@ -39,7 +41,14 @@ export default function Home() {
       );
     }
     setFilteredProducts(result);
+    setCurrentPage(1); // Reset to first page on filter change
   }, [products, activeCategory, searchTerm]);
+
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+  const paginatedProducts = filteredProducts.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   return (
     <div className="pt-28 pb-20 container mx-auto px-4 max-w-7xl">
@@ -96,17 +105,41 @@ export default function Home() {
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {filteredProducts.length > 0 ? (
-                filteredProducts.map(product => (
-                  <ProductCard key={product.id} product={product} />
-                ))
-              ) : (
-                <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-gray-200">
-                  <p className="text-gray-400 text-lg font-serif italic">No pieces found in this collection.</p>
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {paginatedProducts.length > 0 ? (
+                  paginatedProducts.map(product => (
+                    <ProductCard key={product.id} product={product} />
+                  ))
+                ) : (
+                  <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-gray-200">
+                    <p className="text-gray-400 text-lg font-serif italic">No pieces found in this collection.</p>
+                  </div>
+                )}
+              </div>
+
+              {totalPages > 1 && (
+                <div className="mt-12 flex justify-center items-center space-x-4">
+                  <button
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(prev => prev - 1)}
+                    className="px-6 py-2 rounded-full border border-jewelry-gold text-jewelry-gold font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-jewelry-gold hover:text-white transition-all"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm font-bold text-gray-400">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(prev => prev + 1)}
+                    className="px-6 py-2 rounded-full border border-jewelry-gold text-jewelry-gold font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-jewelry-gold hover:text-white transition-all"
+                  >
+                    Next Page
+                  </button>
                 </div>
               )}
-            </div>
+            </>
           )}
         </div>
       </div>
