@@ -60,8 +60,8 @@ export default function Home() {
         </p>
       </header>
 
-      <div className="max-w-xl mx-auto mb-12">
-        <div className="relative group">
+      <div className="max-w-xl mx-auto mb-16">
+        <div className="relative group mb-8">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 group-focus-within:text-jewelry-gold transition-colors" />
           <input 
             type="text" 
@@ -71,31 +71,25 @@ export default function Home() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
+
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {categories.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              className={`px-6 py-2.5 rounded-full text-[11px] font-bold uppercase tracking-widest transition-all border ${
+                activeCategory === cat 
+                ? 'bg-jewelry-gold text-white border-jewelry-gold shadow-md shadow-jewelry-gold/20' 
+                : 'bg-white text-gray-500 border-gray-100 hover:border-jewelry-gold/30 hover:text-jewelry-gold'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-12">
-        {/* Categories Sidebar */}
-        <aside className="w-full md:w-64 space-y-6">
-          <div>
-            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4 px-2">Collections</h3>
-            <div className="flex flex-wrap md:flex-col gap-2">
-              {categories.map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
-                  className={`px-4 py-3 rounded-xl text-sm font-bold text-left transition-all ${
-                    activeCategory === cat 
-                    ? 'bg-jewelry-gold text-white shadow-md' 
-                    : 'bg-white text-gray-500 hover:bg-gray-50'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-          </div>
-        </aside>
-
+      <div className="w-full">
         {/* Product Grid */}
         <div className="flex-grow">
           {loading ? (

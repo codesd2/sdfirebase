@@ -43,7 +43,46 @@
       "properties": {
         "categories": { "type": "array", "items": { "type": "string" } },
         "upiId": { "type": "string" },
-        "minOrderAmount": { "type": "number" }
+        "upiPhone": { "type": "string" },
+        "upiQrImage": { "type": "string" },
+        "upiText": { "type": "string" },
+        "adminPath": { "type": "string" },
+        "maxImageSize": { "type": "number" },
+        "minOrderAmount": { "type": "number" },
+        "cities": { 
+          "type": "array", 
+          "items": { 
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "charge": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": {
+          "type": "object",
+          "properties": {
+            "flat": { "type": "string" },
+            "apartment": { "type": "string" },
+            "street": { "type": "string" },
+            "city": { "type": "string" },
+            "pincode": { "type": "string" },
+            "googleMapsLink": { "type": "string" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
       }
     }
   },
@@ -59,6 +98,10 @@
     "settings": {
       "schema": "Setting",
       "description": "Store settings (doc id 'store')"
+    },
+    "users": {
+      "schema": "User",
+      "description": "User profiles"
     }
   }
 }

@@ -39,14 +39,20 @@ export default function AdminDashboard() {
   const [products, setProducts] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
+  const [registeredUsers, setRegisteredUsers] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>({
     categories: [
       "Rings", "Necklaces", "Earrings", "Bracelets", "Bangles", 
       "Pendants", "Anklets", "Mangalsutras", "Brooches", "Nose Rings"
     ],
+    maxImageSize: 5,
+    adminPath: 'admin',
+    upiQrImage: '',
+    upiText: 'Please scan the above QR code to pay with any UPI App',
     cities: [],
     upiId: '',
+    upiPhone: '',
     minOrderAmount: 100
   });
   const [loading, setLoading] = useState(true);
@@ -89,29 +95,66 @@ export default function AdminDashboard() {
     ]);
     setProducts(pData);
     setOrders(oData);
-    setStaff(uData);
+    
+    // Split users into staff and registered customers
+    const staffMembers = (uData as any[]).filter(u => u.role === 'admin' || u.role === 'staff');
+    const regUsers = (uData as any[]).filter(u => u.role === 'user');
+    setStaff(staffMembers);
+    setRegisteredUsers(regUsers);
 
-    // Extract unique customers
+    // Extract unique customers from orders
     const customerMap = new Map();
+    
+    // Add registered users to the map first
+    regUsers.forEach(u => {
+      const contactKey = u.uid || u.id;
+      customerMap.set(contactKey, {
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        fullAddress: u.address ? `${u.address.flat || ''}, ${u.address.apartment || ''}, ${u.address.street || ''}, ${u.address.city || ''}`.replace(/^, |, $/g, '') : 'No address saved',
+        googleMapsLink: u.address?.googleMapsLink,
+        orderCount: 0,
+        totalSpent: 0,
+        isRegistered: true,
+        uid: u.uid || u.id
+      });
+    });
+
     (oData as any[]).forEach(order => {
       const contactKey = order.customerInfo?.phone || order.customerInfo?.email;
       if (!contactKey) return;
       
-      if (!customerMap.has(contactKey)) {
+      // Try to find if this order belongs to a registered user by phone/email if UID not present
+      let existing: any = null;
+      for (const [key, val] of customerMap.entries()) {
+        if (val.email === order.customerInfo?.email || val.phone === order.customerInfo?.phone) {
+          existing = val;
+          break;
+        }
+      }
+
+      if (!existing) {
         customerMap.set(contactKey, {
           ...order.customerInfo,
           orderCount: 1,
           totalSpent: order.totalAmount || 0,
-          lastOrder: order.createdAt
+          lastOrder: order.createdAt,
+          isRegistered: false
         });
       } else {
-        const existing = customerMap.get(contactKey);
-        customerMap.set(contactKey, {
-          ...existing,
-          orderCount: existing.orderCount + 1,
-          totalSpent: existing.totalSpent + (order.totalAmount || 0),
-          lastOrder: order.createdAt > existing.lastOrder ? order.createdAt : existing.lastOrder
-        });
+        existing.orderCount += 1;
+        existing.totalSpent += (order.totalAmount || 0);
+        if (!existing.lastOrder || order.createdAt > existing.lastOrder) {
+          existing.lastOrder = order.createdAt;
+        }
+        // Update info from order if missing in profile
+        if (!existing.name) existing.name = order.customerInfo.name;
+        if (!existing.phone) existing.phone = order.customerInfo.phone;
+        if (!existing.fullAddress || existing.fullAddress === 'No address saved') {
+           existing.fullAddress = order.customerInfo.fullAddress;
+        }
+        if (!existing.googleMapsLink) existing.googleMapsLink = order.customerInfo.googleMapsLink;
       }
     });
     setCustomers(Array.from(customerMap.values()));
@@ -258,12 +301,15 @@ export default function AdminDashboard() {
     setSettings({ ...settings, cities: updatedCities });
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isQr = false) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 1000000) { // ~1MB limit for Firestore document
-      toast.error('Image too large. Please use an image under 1MB (recommended < 800KB).');
+    const maxSizeMB = settings.maxImageSize || 5;
+    const maxSizeBytes = maxSizeMB * 1024 * 1024;
+
+    if (file.size > maxSizeBytes) {
+      toast.error(`Image too large. Please use an image under ${maxSizeMB}MB (recommended < 800KB).`);
       return;
     }
 
@@ -271,7 +317,11 @@ export default function AdminDashboard() {
     const reader = new FileReader();
     reader.onloadend = () => {
       const base64String = reader.result as string;
-      setProductForm(prev => ({ ...prev, images: [base64String] }));
+      if (isQr) {
+        setSettings(prev => ({ ...prev, upiQrImage: base64String }));
+      } else {
+        setProductForm(prev => ({ ...prev, images: [base64String] }));
+      }
       setUploadingImage(false);
       toast.success('Image uploaded successfully');
     };
@@ -400,17 +450,11 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen bg-gray-50 pt-16 lg:pt-0">
-      {/* Mobile Header */}
-      <div className="lg:hidden bg-white border-b border-gray-200 p-4 fixed top-16 left-0 right-0 z-40 flex justify-between items-center">
-        <h1 className="text-xl font-serif font-bold text-jewelry-gold uppercase tracking-tighter">Om Collections</h1>
-        <button onClick={() => logout()} className="text-red-500"><LogOut className="w-5 h-5" /></button>
-      </div>
-
-      {/* Sidebar - Matches user's CSS selector request for a static nav block */}
-      <aside className={`bg-white border-r border-gray-200 lg:h-screen lg:fixed lg:left-0 lg:top-0 z-50 overflow-y-auto transition-all duration-300 ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72'}`}>
+    <div className="flex flex-col lg:flex-row min-h-screen bg-gray-50 lg:pt-0">
+      {/* Sidebar - Desktop Only */}
+      <aside className={`bg-white border-r border-gray-200 hidden lg:block lg:h-screen lg:fixed lg:left-0 lg:top-0 z-50 overflow-y-auto transition-all duration-300 ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72'}`}>
         <div id="admin-sidebar" className="p-4 h-full flex flex-col transition-all duration-300">
-          <div className={`mb-10 hidden lg:flex items-center ${isSidebarCollapsed ? 'flex-col space-y-4' : 'justify-between px-2'} overflow-hidden`}>
+          <div className={`mb-10 flex items-center ${isSidebarCollapsed ? 'flex-col space-y-4' : 'justify-between px-2'} overflow-hidden`}>
             <div className={`overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
               <h1 className="font-serif font-bold text-jewelry-gold tracking-tight whitespace-nowrap text-2xl">
                 ADMIN PANEL
@@ -473,8 +517,30 @@ export default function AdminDashboard() {
         </div>
       </aside>
 
-      {/* Main Content Area - Static width container within fluid background */}
-      <main className={`flex-grow transition-all duration-300 p-4 lg:p-12 ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-72'}`}>
+      {/* Mobile Bottom Navigation */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-50 flex items-center justify-around px-2 py-3 shadow-2xl">
+        {[
+          { id: 'overview', icon: LayoutDashboard },
+          { id: 'products', icon: Package },
+          { id: 'orders', icon: ShoppingBag },
+          { id: 'settings', icon: Settings },
+          { id: 'staff', icon: Shield },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`p-3 rounded-2xl transition-all ${activeTab === tab.id ? 'bg-jewelry-gold text-white shadow-lg shadow-jewelry-gold/20' : 'text-gray-400 hover:bg-gray-50'}`}
+          >
+            <tab.icon className="w-5 h-5" />
+          </button>
+        ))}
+        <button onClick={() => logout()} className="p-3 text-red-500 hover:bg-red-50 rounded-2xl">
+          <LogOut className="w-5 h-5" />
+        </button>
+      </nav>
+
+      {/* Main Content Area */}
+      <main className={`flex-grow transition-all duration-300 p-4 lg:p-12 pb-24 lg:pb-12 ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-72'}`}>
         <div className="max-w-6xl mx-auto">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-40">
@@ -673,8 +739,8 @@ export default function AdminDashboard() {
             )}
 
             {activeTab === 'settings' && (
-              <div className="max-w-2xl mx-auto">
-                <section className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 mb-8">
+              <div className="max-w-2xl mx-auto space-y-8">
+                <section className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
                   <h3 className="text-xl font-serif font-bold mb-6">Store Configuration</h3>
                   
                   <div className="space-y-6">
@@ -690,12 +756,41 @@ export default function AdminDashboard() {
                         />
                       </div>
                       <div>
+                        <label className="block text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">UPI Phone Number</label>
+                        <input 
+                          type="text"
+                          placeholder="+91 00000 00000"
+                          className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold"
+                          value={settings.upiPhone || ''}
+                          onChange={e => setSettings({...settings, upiPhone: e.target.value})}
+                        />
+                      </div>
+                      <div>
                         <label className="block text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Min Order (₹)</label>
                         <input 
                           type="number"
                           className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold"
                           value={settings.minOrderAmount ?? 0}
                           onChange={e => setSettings({...settings, minOrderAmount: Number(e.target.value)})}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Max Image Size (MB)</label>
+                        <input 
+                          type="number"
+                          className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold"
+                          value={settings.maxImageSize ?? 5}
+                          onChange={e => setSettings({...settings, maxImageSize: Number(e.target.value)})}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Admin URL Path</label>
+                        <input 
+                          type="text"
+                          placeholder="admin"
+                          className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold"
+                          value={settings.adminPath || 'admin'}
+                          onChange={e => setSettings({...settings, adminPath: e.target.value})}
                         />
                       </div>
                     </div>
@@ -705,6 +800,66 @@ export default function AdminDashboard() {
                       className="w-full bg-jewelry-gold text-white py-4 rounded-xl font-bold shadow-lg shadow-jewelry-gold/20 hover:bg-jewelry-gold-dark transition-all"
                     >
                       Save Store Settings
+                    </button>
+                  </div>
+                </section>
+
+                <section className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                  <h3 className="text-xl font-serif font-bold mb-6">Payment QR Code</h3>
+                  
+                  <div className="space-y-6">
+                    <div className="flex flex-col items-center p-6 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-100">
+                      {settings.upiQrImage ? (
+                        <div className="relative group">
+                          <img src={settings.upiQrImage} className="w-48 h-48 object-contain rounded-lg mb-4 shadow-md bg-white p-2" alt="UPI QR" />
+                          <button 
+                            onClick={() => setSettings({...settings, upiQrImage: ''})}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-center py-8">
+                          <Upload className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                          <p className="text-sm text-gray-400">No QR Code uploaded yet</p>
+                        </div>
+                      )}
+                      
+                      <div className="w-full mt-4">
+                        <input 
+                          type="file" 
+                          accept="image/*"
+                          onChange={(e) => handleImageUpload(e, true)}
+                          className="hidden" 
+                          id="qr-image-upload"
+                        />
+                        <label 
+                          htmlFor="qr-image-upload"
+                          className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-white rounded-xl border border-gray-200 cursor-pointer hover:bg-jewelry-cream/30 hover:border-jewelry-gold/30 transition-all font-bold text-sm text-gray-700"
+                        >
+                          <Upload className="w-4 h-4 text-jewelry-gold" />
+                          <span>{settings.upiQrImage ? 'Replace QR Code' : 'Upload QR Code'}</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">QR Code Footer Text</label>
+                      <textarea 
+                        className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold text-sm"
+                        placeholder="Instructions for customers below the QR code..."
+                        rows={2}
+                        value={settings.upiText || ''}
+                        onChange={e => setSettings({...settings, upiText: e.target.value})}
+                      />
+                    </div>
+
+                    <button 
+                      onClick={handleSaveSettings}
+                      className="w-full bg-jewelry-gold text-white py-4 rounded-xl font-bold shadow-lg shadow-jewelry-gold/20 hover:bg-jewelry-gold-dark transition-all"
+                    >
+                      Persist QR Changes
                     </button>
                   </div>
                 </section>
@@ -792,6 +947,7 @@ export default function AdminDashboard() {
                     <thead className="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                       <tr>
                         <th className="px-8 py-4">Customer</th>
+                        <th className="px-8 py-4">Status</th>
                         <th className="px-8 py-4">Contact</th>
                         <th className="px-8 py-4">Orders</th>
                         <th className="px-8 py-4">Total Value</th>
@@ -802,8 +958,15 @@ export default function AdminDashboard() {
                       {customers.map((customer, idx) => (
                         <tr key={idx} className="hover:bg-gray-50 transition-colors">
                           <td className="px-8 py-6">
-                            <p className="font-bold text-gray-900">{customer.name}</p>
+                            <p className="font-bold text-gray-900">{customer.name || 'Anonymous'}</p>
                             <p className="text-xs text-gray-400">{customer.email || 'No email'}</p>
+                          </td>
+                          <td className="px-8 py-6">
+                            {customer.isRegistered ? (
+                              <span className="text-[9px] bg-green-100 text-green-600 px-2 py-1 rounded-full font-bold uppercase tracking-widest">Registered</span>
+                            ) : (
+                              <span className="text-[9px] bg-gray-100 text-gray-400 px-2 py-1 rounded-full font-bold uppercase tracking-widest">Guest</span>
+                            )}
                           </td>
                           <td className="px-8 py-6">
                             <a href={`tel:${customer.phone}`} className="text-sm font-bold hover:text-jewelry-gold">
@@ -1169,7 +1332,7 @@ export default function AdminDashboard() {
                         </span>
                       </label>
                     </div>
-                    <p className="text-[10px] text-gray-400 mt-1 italic">Max size: 800KB. Using URLs is also supported via field below.</p>
+                    <p className="text-[10px] text-gray-400 mt-1 italic">Max size: {settings.maxImageSize || 5}MB. Base64 encoding used for Firestore.</p>
                   </div>
                 </div>
               </div>

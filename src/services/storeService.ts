@@ -145,7 +145,11 @@ export const settingsService = {
           "Pendants", "Anklets", "Mangalsutras", "Brooches", "Nose Rings"
         ],
         upiId: '',
-        minOrderAmount: 100
+        minOrderAmount: 100,
+        maxImageSize: 5,
+        adminPath: 'admin',
+        upiQrImage: '',
+        upiText: 'Please scan the above QR code to pay with any UPI App'
       };
     } catch (error) {
       handleFirestoreError(error, OperationType.GET, path);

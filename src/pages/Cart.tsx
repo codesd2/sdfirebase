@@ -1,11 +1,29 @@
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
-import { Trash2, Plus, Minus, ArrowRight, ShoppingBag } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { Trash2, Plus, Minus, ArrowRight, ShoppingBag, MapPin } from 'lucide-react';
 import { motion } from 'motion/react';
+import { settingsService } from '../services/storeService';
+import toast from 'react-hot-toast';
 
 export default function Cart() {
   const { items, removeFromCart, updateQuantity, totalPrice } = useCart();
+  const { user, login } = useAuth();
   const navigate = useNavigate();
+  const [settings, setSettings] = useState<any>(null);
+  const [selectedCity, setSelectedCity] = useState<any>(null);
+
+  useEffect(() => {
+    settingsService.getSettings().then(setSettings);
+  }, []);
+
+  useEffect(() => {
+    if (user && user.address?.city && settings?.cities) {
+      const city = settings.cities.find((c: any) => c.name === user.address?.city);
+      if (city) setSelectedCity(city);
+    }
+  }, [user, settings]);
 
   if (items.length === 0) {
     return (
@@ -62,31 +80,73 @@ export default function Cart() {
         <aside>
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 sticky top-32">
             <h2 className="text-xl font-serif font-bold mb-6">Order Summary</h2>
+            
+            <div className="mb-8">
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Delivery Destination</label>
+              <div className="relative group">
+                <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-jewelry-gold group-focus-within:text-jewelry-gold transition-colors" />
+                <select 
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-medium focus:ring-1 focus:ring-jewelry-gold focus:bg-white transition-all appearance-none cursor-pointer"
+                  onChange={(e) => {
+                    const city = settings?.cities?.find((c: any) => c.name === e.target.value);
+                    setSelectedCity(city || null);
+                  }}
+                  value={selectedCity?.name || ''}
+                >
+                  <option value="">Select your city</option>
+                  {settings?.cities?.map((city: any, idx: number) => (
+                    <option key={idx} value={city.name}>{city.name}</option>
+                  ))}
+                </select>
+              </div>
+              {selectedCity && (
+                <p className="mt-2 text-[10px] text-green-600 font-bold uppercase tracking-wide flex items-center">
+                  <span className="w-1 h-1 bg-green-500 rounded-full mr-2"></span>
+                  Delivery available for ₹{selectedCity.charge}
+                </p>
+              )}
+            </div>
+
             <div className="space-y-4 mb-8">
-              <div className="flex justify-between text-gray-500">
+              <div className="flex justify-between text-gray-500 text-sm">
                 <span>Subtotal</span>
                 <span>₹{totalPrice.toLocaleString('en-IN')}</span>
               </div>
-              <div className="flex justify-between text-gray-500">
-                <span>Shipping</span>
-                <span className="text-green-500 font-medium">Free</span>
+              <div className="flex justify-between text-gray-500 text-sm">
+                <span>Delivery Charges</span>
+                <span>{selectedCity ? `₹${selectedCity.charge.toLocaleString('en-IN')}` : <span className="text-xs italic">Select city</span>}</span>
               </div>
-              <div className="flex justify-between text-gray-500">
+              <div className="flex justify-between text-gray-500 text-sm">
                 <span>Tax (GST)</span>
                 <span>Included</span>
               </div>
               <div className="h-px bg-gray-100 my-4"></div>
               <div className="flex justify-between text-xl font-bold">
                 <span>Total</span>
-                <span className="text-jewelry-gold">₹{totalPrice.toLocaleString('en-IN')}</span>
+                <span className="text-jewelry-gold">
+                  ₹{(totalPrice + (selectedCity?.charge || 0)).toLocaleString('en-IN')}
+                </span>
               </div>
             </div>
 
             <button 
-              onClick={() => navigate('/checkout')}
-              className="w-full bg-gray-900 text-white py-4 rounded-full font-bold hover:bg-jewelry-gold transition-colors flex items-center justify-center group"
+              disabled={!selectedCity}
+              onClick={() => {
+                if (selectedCity) {
+                  navigate('/checkout', { state: { deliveryCity: selectedCity } });
+                }
+              }}
+              className={`w-full py-4 rounded-full font-bold transition-all flex items-center justify-center group ${
+                selectedCity 
+                ? 'bg-gray-900 text-white hover:bg-jewelry-gold shadow-lg shadow-jewelry-gold/10' 
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+              }`}
             >
-              Checkout <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              {selectedCity ? (
+                <>Checkout <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" /></>
+              ) : (
+                'Select City to Checkout'
+              )}
             </button>
             <p className="text-[10px] text-gray-400 text-center mt-4 uppercase tracking-widest font-medium">
               Secure checkout guaranteed

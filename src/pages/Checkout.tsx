@@ -1,59 +1,79 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 import { orderService, settingsService } from '../services/storeService';
-import { ChevronRight, ArrowLeft, Send, CheckCircle2, MapPin, QrCode } from 'lucide-react';
+import { ChevronRight, ArrowLeft, Send, CheckCircle2, MapPin, QrCode, Crosshair } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import toast from 'react-hot-toast';
 import { QRCodeSVG } from 'qrcode.react';
 
 export default function Checkout() {
   const { items, totalPrice, clearCart } = useCart();
+  const { user, login, updateProfile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'upi' | null>(null);
-  const [showUPI, setShowUPI] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'upi' | null>('upi');
+  const [showUPI, setShowUPI] = useState(true);
   const [settings, setSettings] = useState<any>(null);
   const [cityCharge, setCityCharge] = useState(0);
+  const [saveAsDefault, setSaveAsDefault] = useState(false);
   
   const [formData, setFormData] = useState({
-    name: '',
-    phone: '',
-    email: '',
-    flat: '',
-    apartment: '',
-    street: '',
-    city: '',
-    pincode: '',
-    googleMapsLink: ''
+    name: user?.name || '',
+    phone: user?.phone || '',
+    email: user?.email || '',
+    flat: user?.address?.flat || '',
+    apartment: user?.address?.apartment || '',
+    street: user?.address?.street || '',
+    city: location.state?.deliveryCity?.name || user?.address?.city || '',
+    pincode: user?.address?.pincode || '',
+    googleMapsLink: user?.address?.googleMapsLink || ''
   });
 
   useEffect(() => {
-    settingsService.getSettings().then(setSettings);
+    settingsService.getSettings().then(s => {
+      setSettings(s);
+    });
     
-    // Autofill from last order
-    const savedData = localStorage.getItem('last_jewelry_customer');
-    if (savedData) {
-      try {
-        const parsed = JSON.parse(savedData);
-        setFormData(prev => ({ 
-          ...prev, 
-          name: parsed.name || '',
-          phone: parsed.phone || '',
-          email: parsed.email || '',
-          flat: parsed.flat || '',
-          apartment: parsed.apartment || '',
-          street: parsed.street || '',
-          city: parsed.city || '',
-          pincode: parsed.pincode || '',
-          googleMapsLink: '' // Always clear link for new session
-        }));
-      } catch (e) {
-        console.error("Autofill error", e);
+    // Autofill from user profile if available, otherwise localStorage
+    if (user) {
+      setFormData(prev => ({
+        ...prev,
+        name: user.name || prev.name,
+        phone: user.phone || prev.phone,
+        email: user.email || prev.email,
+        flat: user.address?.flat || prev.flat,
+        apartment: user.address?.apartment || prev.apartment,
+        street: user.address?.street || prev.street,
+        city: location.state?.deliveryCity?.name || user.address?.city || prev.city,
+        pincode: user.address?.pincode || prev.pincode,
+        googleMapsLink: user.address?.googleMapsLink || prev.googleMapsLink || ''
+      }));
+    } else {
+      const savedData = localStorage.getItem('last_jewelry_customer');
+      if (savedData) {
+        try {
+          const parsed = JSON.parse(savedData);
+          setFormData(prev => ({ 
+            ...prev, 
+            name: parsed.name || '',
+            phone: parsed.phone || '',
+            email: parsed.email || '',
+            flat: parsed.flat || '',
+            apartment: parsed.apartment || '',
+            street: parsed.street || '',
+            city: location.state?.deliveryCity?.name || parsed.city || '',
+            pincode: parsed.pincode || '',
+          }));
+        } catch (e) {
+          console.error("Autofill error", e);
+        }
       }
     }
-  }, []);
+  }, [user, location.state]);
 
   useEffect(() => {
     if (formData.city && settings?.cities) {
@@ -107,11 +127,27 @@ export default function Checkout() {
     }
 
     setLoading(true);
+    
     // Save details for next time
     localStorage.setItem('last_jewelry_customer', JSON.stringify({
       ...formData,
       googleMapsLink: '' // Privacy: don't save GPS link in localStorage long-term
     }));
+
+    if (user && saveAsDefault) {
+      await updateProfile({
+        name: formData.name,
+        phone: formData.phone,
+        address: {
+          flat: formData.flat,
+          apartment: formData.apartment,
+          street: formData.street,
+          city: formData.city,
+          pincode: formData.pincode,
+          googleMapsLink: formData.googleMapsLink
+        }
+      });
+    }
 
     const fullAddress = `${formData.flat}, ${formData.apartment}, ${formData.street}, ${formData.city} - ${formData.pincode}`;
     const mapsLink = formData.googleMapsLink;
@@ -122,7 +158,7 @@ export default function Checkout() {
         subtotal: totalPrice,
         deliveryCharge,
         totalAmount: finalTotal,
-        paymentMethod,
+        paymentMethod: 'UPI',
         customerInfo: {
           ...formData,
           fullAddress,
@@ -135,7 +171,7 @@ export default function Checkout() {
       
       const phoneNumber = '+919966113452';
       const itemsText = items.map(i => `- ${i.name} (x${i.quantity})`).join('\n');
-      const message = `*New Order Request*\n\n*Customer:* ${formData.name}\n*Phone:* ${formData.phone}\n*Address:* ${fullAddress}\n*Payment:* ${paymentMethod.toUpperCase()}\n${mapsLink ? `*GPS Location:* ${mapsLink}` : ''}\n\n*Items:*\n${itemsText}\n\n*Subtotal:* ₹${totalPrice.toLocaleString('en-IN')}\n*Delivery:* ₹${deliveryCharge}\n*Total:* ₹${finalTotal.toLocaleString('en-IN')}`;
+      const message = `*New Order Request*\n\n*Customer:* ${formData.name}\n*Phone:* ${formData.phone}\n*Address:* ${fullAddress}\n*Payment:* UPI\n${mapsLink ? `*GPS Location:* ${mapsLink}` : ''}\n\n*Items:*\n${itemsText}\n\n*Subtotal:* ₹${totalPrice.toLocaleString('en-IN')}\n*Delivery:* ₹${deliveryCharge}\n*Total:* ₹${finalTotal.toLocaleString('en-IN')}`;
       
       window.open(`https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`, '_blank');
       
@@ -177,6 +213,19 @@ export default function Checkout() {
                       <span className="w-8 h-8 bg-jewelry-gold text-white rounded-full flex items-center justify-center text-sm mr-3">1</span>
                       Shipping Details
                     </h2>
+                    {user ? (
+                      <div className="flex items-center space-x-2 bg-green-50 px-3 py-1.5 rounded-lg border border-green-100">
+                        <CheckCircle2 className="w-3 h-3 text-green-500" />
+                        <span className="text-[10px] font-bold text-green-600 uppercase">Logged in as {user.name || 'Guest'}</span>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => login()}
+                        className="text-[10px] font-bold text-jewelry-gold uppercase tracking-widest hover:underline"
+                      >
+                        Log in for faster checkout
+                      </button>
+                    )}
                   </div>
                   
                   <div className="space-y-6">
@@ -266,13 +315,28 @@ export default function Checkout() {
 
                     <div className="pt-6 border-t border-gray-100">
                       <div className="flex flex-col gap-4">
+                        {user && (
+                          <label className="flex items-center space-x-3 cursor-pointer group mb-2">
+                            <div className="relative">
+                              <input 
+                                type="checkbox" 
+                                className="sr-only peer"
+                                checked={saveAsDefault}
+                                onChange={(e) => setSaveAsDefault(e.target.checked)}
+                              />
+                              <div className="w-10 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-jewelry-gold"></div>
+                            </div>
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest group-hover:text-jewelry-gold transition-colors">Save as my default shipping address</span>
+                          </label>
+                        )}
+                        
                         <button 
                           type="button"
                           onClick={handleGetCurrentLocation}
                           className={`w-full flex items-center justify-center space-x-2 px-6 py-4 rounded-2xl text-sm font-bold transition-all border ${formData.googleMapsLink ? 'bg-jewelry-cream/30 text-jewelry-gold border-jewelry-gold/20' : 'bg-gray-50 text-gray-400 border-gray-100 hover:border-jewelry-gold/30'}`}
                         >
-                          <MapPin className="w-5 h-5" />
-                          <span>{formData.googleMapsLink ? 'Location Captured' : 'Use current location'}</span>
+                          <Crosshair className={`w-5 h-5 ${formData.googleMapsLink ? 'text-jewelry-gold' : 'text-gray-400'}`} />
+                          <span>{formData.googleMapsLink ? 'Location Captured' : 'Get Current Location'}</span>
                         </button>
                         
                         {formData.googleMapsLink && (
@@ -331,47 +395,67 @@ export default function Checkout() {
                   )}
 
                   <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <button 
-                        onClick={() => {
-                          setPaymentMethod('cod');
-                          setShowUPI(false);
-                        }}
-                        className={`py-3 rounded-2xl text-xs font-bold transition-all border-2 ${paymentMethod === 'cod' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-100 text-gray-400 hover:border-gray-200'}`}
-                      >
-                        Cash on Delivery
-                      </button>
-                      <button 
-                        onClick={() => {
-                          setPaymentMethod('upi');
-                          setShowUPI(true);
-                        }}
-                        className={`py-3 rounded-2xl text-xs font-bold transition-all border-2 ${paymentMethod === 'upi' ? 'border-jewelry-gold bg-jewelry-cream text-jewelry-gold' : 'border-gray-100 text-gray-400 hover:border-gray-200'}`}
-                      >
-                        Select UPI/QR
-                      </button>
+                    <div className="bg-jewelry-cream/30 p-4 rounded-2xl border border-jewelry-gold/20 flex items-center justify-between">
+                      <div className="flex items-center">
+                        <QrCode className="w-5 h-5 text-jewelry-gold mr-3" />
+                        <span className="text-sm font-bold text-jewelry-gold uppercase tracking-widest">Pay via UPI / QR</span>
+                      </div>
+                      <span className="text-[10px] bg-jewelry-gold text-white px-2 py-0.5 rounded-full font-bold">REQUIRED</span>
                     </div>
 
                     <AnimatePresence>
-                      {showUPI && paymentMethod === 'upi' && (
+                      {showUPI && (
                         <motion.div 
                           initial={{ height: 0, opacity: 0 }}
                           animate={{ height: 'auto', opacity: 1 }}
                           exit={{ height: 0, opacity: 0 }}
                           className="overflow-hidden bg-gray-50 rounded-2xl p-4 text-center border border-jewelry-gold/10"
                         >
-                          <div className="bg-white p-4 rounded-xl inline-block shadow-sm">
-                            <QRCodeSVG value={upiUrl} size={150} />
+                          <div className="bg-white p-4 rounded-xl inline-block shadow-sm relative group">
+                            {settings?.upiQrImage ? (
+                              <>
+                                <img src={settings.upiQrImage} className="w-48 h-48 object-contain mx-auto" alt="UPI QR" id="upi-qr-image" />
+                                <a 
+                                  href={settings.upiQrImage} 
+                                  download="Jewelry_Payment_QR.png"
+                                  className="absolute bottom-2 right-2 bg-jewelry-gold text-white p-1.5 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                  title="Download QR"
+                                >
+                                  <Send className="w-3 h-3 rotate-90" />
+                                </a>
+                              </>
+                            ) : (
+                              <QRCodeSVG value={upiUrl} size={150} />
+                            )}
                           </div>
-                          <p className="text-[10px] text-gray-500 mt-3 italic">Scan to pay exactly ₹{finalTotal.toLocaleString('en-IN')}</p>
-                          <p className="text-xs font-bold text-jewelry-gold">{settings?.upiId || 'Loading UPI...'}</p>
+                          <p className="text-[10px] text-gray-500 mt-3 italic whitespace-pre-line px-4">
+                            {settings?.upiText || `Scan to pay exactly ₹${finalTotal.toLocaleString('en-IN')}`}
+                          </p>
+                          <div className="mt-4 space-y-1">
+                            {settings?.upiId && (
+                              <p className="text-xs font-bold text-gray-900">UPI: <span className="text-jewelry-gold">{settings.upiId}</span></p>
+                            )}
+                            {settings?.upiPhone && (
+                              <p className="text-xs font-bold text-gray-900">Phone: <span className="text-jewelry-gold">{settings.upiPhone}</span></p>
+                            )}
+                          </div>
+                          
+                          {settings?.upiQrImage && (
+                            <a 
+                              href={settings.upiQrImage} 
+                              download="Jewelry_Payment_QR.png"
+                              className="mt-4 inline-flex items-center space-x-2 text-[10px] font-bold text-jewelry-gold border border-jewelry-gold/20 px-3 py-1.5 rounded-full hover:bg-jewelry-gold hover:text-white transition-all uppercase tracking-widest"
+                            >
+                              <span>Download QR Image</span>
+                            </a>
+                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
 
                     <button 
                       onClick={handleWhatsAppCheckout}
-                      disabled={loading || !formData.name || !formData.phone || !formData.flat || !formData.googleMapsLink || !isMinReached || !paymentMethod}
+                      disabled={loading || !formData.name || !formData.phone || !formData.flat || !formData.googleMapsLink || !isMinReached}
                       className="w-full bg-jewelry-gold text-white py-4 rounded-full font-bold hover:bg-jewelry-gold-dark transition-all disabled:opacity-50 flex items-center justify-center space-x-2 shadow-xl shadow-jewelry-gold/20"
                     >
                       {loading ? (
@@ -379,7 +463,7 @@ export default function Checkout() {
                       ) : (
                         <>
                           <Send className="w-5 h-5" />
-                          <span>{isMinReached ? `Confirm Order (${paymentMethod === 'cod' ? 'COD' : 'UPI'})` : `Min Order ₹${settings?.minOrderAmount}`}</span>
+                          <span>{isMinReached ? `Confirm Order via WhatsApp` : `Min Order ₹${settings?.minOrderAmount}`}</span>
                         </>
                       )}
                     </button>
