@@ -1,0 +1,6 @@
+{
+  "name": "Sanjay Dutta Fine Jewelry",
+  "description": "A premium, mobile-friendly jewelry e-commerce platform with WhatsApp integration, speed optimization, and an admin dashboard for product and order management.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}

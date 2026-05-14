@@ -1,0 +1,1006 @@
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { productService, orderService, settingsService, userService } from '../../services/storeService';
+import { 
+  Package, 
+  ShoppingBag, 
+  Plus, 
+  Edit2, 
+  Trash2, 
+  Search, 
+  LayoutDashboard, 
+  TrendingUp, 
+  Clock,
+  Database,
+  CheckCircle,
+  XCircle,
+  LogOut,
+  Settings,
+  MapPin,
+  Users,
+  UserPlus,
+  ExternalLink,
+  Shield,
+  Upload
+} from 'lucide-react';
+import toast from 'react-hot-toast';
+import { motion, AnimatePresence } from 'motion/react';
+import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import { auth, googleProvider, createSecondaryUser } from '../../lib/firebase';
+
+export default function AdminDashboard() {
+  const { user, logout, isAdmin, loading: authLoading } = useAuth();
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'orders' | 'settings' | 'categories' | 'customers' | 'staff'>('overview');
+  const [products, setProducts] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [staff, setStaff] = useState<any[]>([]);
+  const [settings, setSettings] = useState<any>({
+    categories: [
+      "Rings", "Necklaces", "Earrings", "Bracelets", "Bangles", 
+      "Pendants", "Anklets", "Mangalsutras", "Brooches", "Nose Rings"
+    ],
+    cities: [],
+    upiId: '',
+    minOrderAmount: 100
+  });
+  const [loading, setLoading] = useState(true);
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+
+  const [newUserForm, setNewUserForm] = useState({ email: '', password: '', role: 'staff' });
+  const [creatingUser, setCreatingUser] = useState(false);
+
+  // Form states for new/edit product
+  const [productForm, setProductForm] = useState({
+    name: '',
+    description: '',
+    price: 0,
+    category: 'Gold',
+    stock: 10,
+    images: ['']
+  });
+
+  const [newCategory, setNewCategory] = useState('');
+  const [newCityForm, setNewCityForm] = useState({ name: '', charge: '' });
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  useEffect(() => {
+    if (isAdmin) {
+      fetchData();
+    }
+  }, [isAdmin]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    const [pData, oData, sData, uData] = await Promise.all([
+      productService.getProducts(),
+      orderService.getOrders(),
+      settingsService.getSettings(),
+      userService.getUsers()
+    ]);
+    setProducts(pData);
+    setOrders(oData);
+    setStaff(uData);
+
+    // Extract unique customers
+    const customerMap = new Map();
+    (oData as any[]).forEach(order => {
+      const contactKey = order.customerInfo?.phone || order.customerInfo?.email;
+      if (!contactKey) return;
+      
+      if (!customerMap.has(contactKey)) {
+        customerMap.set(contactKey, {
+          ...order.customerInfo,
+          orderCount: 1,
+          totalSpent: order.totalAmount || 0,
+          lastOrder: order.createdAt
+        });
+      } else {
+        const existing = customerMap.get(contactKey);
+        customerMap.set(contactKey, {
+          ...existing,
+          orderCount: existing.orderCount + 1,
+          totalSpent: existing.totalSpent + (order.totalAmount || 0),
+          lastOrder: order.createdAt > existing.lastOrder ? order.createdAt : existing.lastOrder
+        });
+      }
+    });
+    setCustomers(Array.from(customerMap.values()));
+
+    if (sData) setSettings((prev: any) => ({ ...prev, ...sData }));
+    setLoading(false);
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newUserForm.password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    setCreatingUser(true);
+    try {
+      const newUser = await createSecondaryUser(newUserForm.email, newUserForm.password);
+      await userService.updateUserRole(newUser.uid, newUserForm.role);
+      toast.success('User created successfully');
+      setShowUserModal(false);
+      setNewUserForm({ email: '', password: '', role: 'staff' });
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create user');
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
+  const handleUpdateUserRole = async (uid: string, role: string) => {
+    try {
+      await userService.updateUserRole(uid, role);
+      toast.success('Role updated');
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to update role');
+    }
+  };
+
+  const handleDeleteUser = async (uid: string) => {
+    if (window.confirm('Remove this user and their access?')) {
+      await userService.deleteUser(uid);
+      toast.success('User removed');
+      fetchData();
+    }
+  };
+
+  const handleSaveProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editingProduct) {
+        await productService.updateProduct(editingProduct.id, productForm);
+        toast.success('Product updated');
+      } else {
+        await productService.addProduct(productForm);
+        toast.success('Product added');
+      }
+      setShowProductModal(false);
+      setEditingProduct(null);
+      setProductForm({ name: '', description: '', price: 0, category: settings.categories[0], stock: 10, images: [''] });
+      fetchData();
+    } catch (err) {
+      toast.error('Operation failed');
+    }
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    if (window.confirm('Are you sure you want to delete this exquisite piece?')) {
+      await productService.deleteProduct(id);
+      toast.success('Product deleted');
+      fetchData();
+    }
+  };
+
+  const handleUpdateOrderStatus = async (orderId: string, status: string) => {
+    await orderService.updateOrderStatus(orderId, status);
+    toast.success(`Order ${status}`);
+    fetchData();
+  };
+
+  const handleSaveSettings = async () => {
+    try {
+      await settingsService.updateSettings(settings);
+      toast.success('Settings saved');
+    } catch (err) {
+      toast.error('Failed to save settings');
+    }
+  };
+
+  const addCategory = () => {
+    if (newCategory && !settings.categories.includes(newCategory)) {
+      const updated = { ...settings, categories: [...settings.categories, newCategory] };
+      setSettings(updated);
+      setNewCategory('');
+    }
+  };
+
+  const removeCategory = (cat: string) => {
+    const updated = { ...settings, categories: settings.categories.filter((c: string) => c !== cat) };
+    setSettings(updated);
+  };
+
+  const addCity = () => {
+    if (newCityForm.name && newCityForm.charge) {
+      const updated = { 
+        ...settings, 
+        cities: [...(settings.cities || []), { name: newCityForm.name, charge: Number(newCityForm.charge) }] 
+      };
+      setSettings(updated);
+      setNewCityForm({ name: '', charge: '' });
+      toast.success('City added to list locally. Click Save to persist.');
+    } else {
+      toast.error('Please enter both city name and charge');
+    }
+  };
+
+  const removeCity = (index: number) => {
+    const updatedCities = [...settings.cities];
+    updatedCities.splice(index, 1);
+    setSettings({ ...settings, cities: updatedCities });
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 1000000) { // ~1MB limit for Firestore document
+      toast.error('Image too large. Please use an image under 1MB (recommended < 800KB).');
+      return;
+    }
+
+    setUploadingImage(true);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setProductForm(prev => ({ ...prev, images: [base64String] }));
+      setUploadingImage(false);
+      toast.success('Image uploaded successfully');
+    };
+    reader.onerror = () => {
+      setUploadingImage(false);
+      toast.error('Failed to read file');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoggingIn(true);
+    try {
+      await signInWithEmailAndPassword(auth, loginForm.email, loginForm.password);
+      toast.success('Welcome back, Admin');
+    } catch (err: any) {
+      toast.error(err.message || 'Login failed. Ensure you are an admin.');
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+      toast.success('Signed in with Google');
+    } catch (err: any) {
+      toast.error('Google Sign-in failed');
+    }
+  };
+
+  if (authLoading) return <div className="pt-40 text-center">Verifying credentials...</div>;
+  if (!isAdmin) {
+    return (
+      <div className="pt-40 flex items-center justify-center px-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100 w-full max-w-md"
+        >
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-serif font-bold text-jewelry-gold mb-2">Admin Portal</h1>
+            <p className="text-gray-500">Secure access to your jewelry business</p>
+          </div>
+          
+          <button 
+            onClick={handleGoogleLogin}
+            className="w-full flex items-center justify-center space-x-3 bg-white border border-gray-200 py-3 rounded-xl font-bold hover:bg-gray-50 mb-6 transition-all"
+          >
+            <img src="https://www.gstatic.com/firebase/anonymous-scan.png" className="w-5 h-5 hidden" /> { /* Placeholder for Google icon */ }
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.84z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            <span>Sign in with Google</span>
+          </button>
+
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
+            <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-gray-400">Or email login</span></div>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Email Address</label>
+              <input 
+                type="email"
+                required
+                className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold"
+                value={loginForm.email}
+                onChange={e => setLoginForm({...loginForm, email: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Password</label>
+              <input 
+                type="password"
+                required
+                className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold"
+                value={loginForm.password}
+                onChange={e => setLoginForm({...loginForm, password: e.target.value})}
+              />
+            </div>
+            <button 
+              type="submit" 
+              disabled={loggingIn}
+              className="w-full bg-jewelry-gold text-white py-4 rounded-xl font-bold shadow-lg shadow-jewelry-gold/20 hover:bg-jewelry-gold-dark transition-all disabled:opacity-50"
+            >
+              {loggingIn ? 'Authenticating...' : 'Enter Dashboard'}
+            </button>
+          </form>
+          <p className="mt-6 text-center text-[10px] text-gray-400">
+            For access issues, contact your technical administrator.
+          </p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-24 pb-20 bg-gray-50 min-h-screen">
+      <div className="container mx-auto px-4 max-w-7xl">
+        <header className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+          <div>
+            <h1 className="text-3xl font-serif font-bold">Admin Dashboard</h1>
+            <p className="text-gray-500">Manage your jewelry empire</p>
+          </div>
+          <div className="flex bg-white p-1 rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+            {[
+              { id: 'overview', icon: LayoutDashboard, label: 'Overview' },
+              { id: 'products', icon: Package, label: 'Products' },
+              { id: 'orders', icon: ShoppingBag, label: 'Orders' },
+              { id: 'customers', icon: Users, label: 'Customers' },
+              { id: 'staff', icon: Shield, label: 'Staff' },
+              { id: 'categories', icon: Package, label: 'Categories' },
+              { id: 'settings', icon: Settings, label: 'Settings' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all shrink-0 ${activeTab === tab.id ? 'bg-jewelry-gold text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
+              >
+                <tab.icon className="w-4 h-4 mr-2" />
+                {tab.label}
+              </button>
+            ))}
+            <button
+              onClick={() => logout()}
+              className="flex items-center px-4 py-2 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50 transition-all shrink-0"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </button>
+          </div>
+        </header>
+
+        {loading ? (
+          <div className="text-center py-20 text-jewelry-gold">Loading store data...</div>
+        ) : (
+          <div className="space-y-8">
+            {activeTab === 'overview' && (
+              <div className="space-y-8">
+                {/* Bulk Actions for empty stores */}
+                {products.length === 0 && (
+                  <div className="bg-jewelry-gold/5 border border-jewelry-gold/20 p-8 rounded-3xl text-center">
+                    <Database className="w-12 h-12 text-jewelry-gold mx-auto mb-4" />
+                    <h3 className="text-xl font-serif font-bold text-gray-900 mb-2">Populate Your Store</h3>
+                    <p className="text-gray-500 mb-6 max-w-md mx-auto">Your catalog is currently empty. Would you like to seed your store with 20+ professional jewelry products and categories?</p>
+                    <button 
+                      onClick={async () => {
+                        const { seedProducts } = await import('../../lib/seedUtility');
+                        await seedProducts();
+                        window.location.reload();
+                      }}
+                      className="bg-jewelry-gold text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-jewelry-gold/20 hover:bg-jewelry-gold-dark transition-all"
+                    >
+                      Seed 20+ Products Now
+                    </button>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 text-center">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="p-3 bg-blue-50 text-blue-500 rounded-xl mx-auto"><ShoppingBag className="w-6 h-6" /></div>
+                    </div>
+                    <p className="text-gray-500 text-sm font-medium uppercase tracking-wider mb-1">Total Orders</p>
+                    <p className="text-3xl font-bold">{orders.length}</p>
+                </div>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="p-3 bg-jewelry-cream text-jewelry-gold rounded-xl mx-auto"><Package className="w-6 h-6" /></div>
+                    </div>
+                    <p className="text-gray-500 text-sm font-medium uppercase tracking-wider mb-1">Total Products</p>
+                    <p className="text-3xl font-bold">{products.length}</p>
+                </div>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="p-3 bg-green-50 text-green-500 rounded-xl mx-auto"><CheckCircle className="w-6 h-6" /></div>
+                    </div>
+                    <p className="text-gray-500 text-sm font-medium uppercase tracking-wider mb-1">Total Revenue</p>
+                    <p className="text-2xl font-bold">₹{orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0).toLocaleString('en-IN')}</p>
+                </div>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="p-3 bg-red-50 text-red-500 rounded-xl mx-auto"><Clock className="w-6 h-6" /></div>
+                    </div>
+                    <p className="text-gray-500 text-sm font-medium uppercase tracking-wider mb-1">Pending Orders</p>
+                    <p className="text-3xl font-bold text-red-500">{orders.filter(o => o.status === 'pending').length}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+            {activeTab === 'products' && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-50 flex items-center justify-between">
+                  <h3 className="text-xl font-serif font-bold">Manage Inventory</h3>
+                  <button 
+                    onClick={() => {
+                        setEditingProduct(null);
+                        setProductForm({ name: '', description: '', price: 0, category: settings.categories[0], stock: 10, images: [''] });
+                        setShowProductModal(true);
+                    }}
+                    className="bg-jewelry-gold text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-jewelry-gold-dark transition-all"
+                  >
+                    <Plus className="w-4 h-4 mr-1" /> Add Product
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 text-gray-500 text-xs font-bold uppercase tracking-wider">
+                      <tr>
+                        <th className="px-6 py-4">Product</th>
+                        <th className="px-6 py-4">Category</th>
+                        <th className="px-6 py-4">Price</th>
+                        <th className="px-6 py-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {products.map(p => (
+                        <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 flex items-center">
+                            <img 
+                              src={p.images?.[0] || 'https://images.unsplash.com/photo-1515562141207-7a88fb0ce33e?q=80&w=2070&auto=format&fit=crop'} 
+                              className="w-10 h-10 rounded-lg object-cover mr-3"
+                            />
+                            <span className="font-medium text-sm">{p.name}</span>
+                          </td>
+                          <td className="px-6 py-4"><span className="text-xs bg-gray-100 px-2 py-1 rounded">{p.category}</span></td>
+                          <td className="px-6 py-4 text-sm font-bold text-jewelry-gold">₹{p.price.toLocaleString('en-IN')}</td>
+                          <td className="px-6 py-4 text-right space-x-2">
+                            <button 
+                                onClick={() => {
+                                    setEditingProduct(p);
+                                    setProductForm({ ...p });
+                                    setShowProductModal(true);
+                                }}
+                                className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                            >
+                                <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                                onClick={() => handleDeleteProduct(p.id)}
+                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'orders' && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-50">
+                  <h3 className="text-xl font-serif font-bold">Recent Orders</h3>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50 text-gray-500 text-xs font-bold uppercase tracking-wider">
+                            <tr>
+                                <th className="px-6 py-4">Customer</th>
+                                <th className="px-6 py-4">Total</th>
+                                <th className="px-6 py-4">Status</th>
+                                <th className="px-6 py-4 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {orders.map(o => (
+                                <tr key={o.id} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-6 py-4">
+                                        <p className="font-medium text-sm">{o.customerInfo?.name}</p>
+                                        <p className="text-xs text-gray-500">{o.customerInfo?.phone}</p>
+                                    </td>
+                                    <td className="px-6 py-4 text-sm font-bold">₹{o.totalAmount.toLocaleString('en-IN')}</td>
+                                    <td className="px-6 py-4">
+                                        <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider 
+                                            ${o.status === 'pending' ? 'bg-red-100 text-red-600' : 
+                                              o.status === 'processing' ? 'bg-blue-100 text-blue-600' :
+                                              o.status === 'shipped' ? 'bg-yellow-100 text-yellow-600' :
+                                              'bg-green-100 text-green-600'}`}>
+                                            {o.status}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <select 
+                                            value={o.status}
+                                            onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
+                                            className="text-xs font-bold bg-gray-50 border-none rounded-lg px-2 py-1 focus:ring-1 focus:ring-jewelry-gold"
+                                        >
+                                            <option value="pending">Pending</option>
+                                            <option value="processing">Processing</option>
+                                            <option value="shipped">Shipped</option>
+                                            <option value="delivered">Delivered</option>
+                                            <option value="cancelled">Cancelled</option>
+                                        </select>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'settings' && (
+              <div className="max-w-2xl mx-auto">
+                <section className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 mb-8">
+                  <h3 className="text-xl font-serif font-bold mb-6">Store Configuration</h3>
+                  
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">UPI ID</label>
+                        <input 
+                          type="text"
+                          placeholder="example@upi"
+                          className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold"
+                          value={settings.upiId || ''}
+                          onChange={e => setSettings({...settings, upiId: e.target.value})}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Min Order (₹)</label>
+                        <input 
+                          type="number"
+                          className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold"
+                          value={settings.minOrderAmount ?? 0}
+                          onChange={e => setSettings({...settings, minOrderAmount: Number(e.target.value)})}
+                        />
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={handleSaveSettings}
+                      className="w-full bg-jewelry-gold text-white py-4 rounded-xl font-bold shadow-lg shadow-jewelry-gold/20 hover:bg-jewelry-gold-dark transition-all"
+                    >
+                      Save Store Settings
+                    </button>
+                  </div>
+                </section>
+
+                <section className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                  <div className="mb-6">
+                    <h3 className="text-xl font-serif font-bold">Delivery Cities & Charges</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                    <input 
+                      type="text"
+                      placeholder="City Name"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold text-sm"
+                      value={newCityForm.name}
+                      onChange={e => setNewCityForm({...newCityForm, name: e.target.value})}
+                    />
+                    <div className="flex gap-2">
+                      <input 
+                        type="number"
+                        placeholder="Charge (₹)"
+                        className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold text-sm"
+                        value={newCityForm.charge}
+                        onChange={e => setNewCityForm({...newCityForm, charge: e.target.value})}
+                      />
+                      <button 
+                        onClick={addCity}
+                        className="bg-jewelry-gold text-white p-3 rounded-xl hover:bg-jewelry-gold-dark transition-colors shrink-0"
+                        title="Add City"
+                      >
+                        <Plus className="w-6 h-6" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {settings.cities?.map((city: any, idx: number) => (
+                      <div key={idx} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                        <div>
+                          <p className="font-bold">{city.name}</p>
+                          <p className="text-xs text-jewelry-gold">₹{city.charge} Delivery Charge</p>
+                        </div>
+                        <button 
+                          onClick={() => removeCity(idx)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    {(!settings.cities || settings.cities.length === 0) && (
+                      <p className="text-center py-4 text-gray-400 text-sm italic">No cities added for delivery.</p>
+                    )}
+                  </div>
+                  
+                  {settings.cities?.length > 0 && (
+                    <button 
+                      onClick={handleSaveSettings}
+                      className="w-full mt-6 bg-gray-900 text-white py-4 rounded-xl font-bold hover:bg-jewelry-gold transition-all"
+                    >
+                      Save City List
+                    </button>
+                  )}
+                </section>
+              </div>
+            )}
+
+            {activeTab === 'customers' && (
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-8 border-b border-gray-50 flex justify-between items-center">
+                  <h3 className="text-xl font-serif font-bold">Client Directory</h3>
+                  <span className="text-sm font-bold text-jewelry-gold bg-jewelry-cream px-4 py-1 rounded-full">
+                    {customers.length} Customers
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      <tr>
+                        <th className="px-8 py-4">Customer</th>
+                        <th className="px-8 py-4">Contact</th>
+                        <th className="px-8 py-4">Orders</th>
+                        <th className="px-8 py-4">Total Value</th>
+                        <th className="px-8 py-4">Address & Location</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {customers.map((customer, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-8 py-6">
+                            <p className="font-bold text-gray-900">{customer.name}</p>
+                            <p className="text-xs text-gray-400">{customer.email || 'No email'}</p>
+                          </td>
+                          <td className="px-8 py-6">
+                            <a href={`tel:${customer.phone}`} className="text-sm font-bold hover:text-jewelry-gold">
+                              {customer.phone}
+                            </a>
+                          </td>
+                          <td className="px-8 py-6">
+                            <span className="text-sm">{customer.orderCount}</span>
+                          </td>
+                          <td className="px-8 py-6">
+                            <span className="text-sm font-bold">₹{customer.totalSpent?.toLocaleString('en-IN')}</span>
+                          </td>
+                          <td className="px-8 py-6 max-w-xs">
+                            <p className="text-xs text-gray-500 line-clamp-1 mb-1">{customer.fullAddress}</p>
+                            {customer.googleMapsLink && (
+                              <a 
+                                href={customer.googleMapsLink} 
+                                target="_blank" 
+                                rel="noreferrer"
+                                className="text-[10px] font-bold text-jewelry-gold flex items-center hover:underline"
+                              >
+                                <MapPin className="w-3 h-3 mr-1" /> View on Maps <ExternalLink className="w-2 h-2 ml-1" />
+                              </a>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'staff' && (
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-8 border-b border-gray-50 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-xl font-serif font-bold">System Users</h3>
+                    <p className="text-sm text-gray-500">Manage staff access and roles</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowUserModal(true)}
+                    className="bg-jewelry-gold text-white px-6 py-2 rounded-xl text-sm font-bold flex items-center hover:bg-jewelry-gold-dark transition-all"
+                  >
+                    <UserPlus className="w-4 h-4 mr-2" /> Add Staff Member
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      <tr>
+                        <th className="px-8 py-4">User</th>
+                        <th className="px-8 py-4">Role</th>
+                        <th className="px-8 py-4">System ID</th>
+                        <th className="px-8 py-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {staff.map((u, idx) => (
+                        <tr key={u.id || idx} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-8 py-6">
+                            <p className="font-bold text-gray-900">{u.email}</p>
+                            {u.email === 'itssanjaydutta@gmail.com' && (
+                              <span className="text-[10px] text-jewelry-gold font-bold uppercase tracking-wider">Primary System Owner</span>
+                            )}
+                          </td>
+                          <td className="px-8 py-6">
+                            <select 
+                              value={u.role || 'user'}
+                              disabled={u.email === 'itssanjaydutta@gmail.com'}
+                              onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                              className="text-xs font-bold bg-gray-50 border-none rounded-lg px-3 py-1 focus:ring-1 focus:ring-jewelry-gold disabled:opacity-50"
+                            >
+                              <option value="user">Standard User</option>
+                              <option value="staff">Staff/Editor</option>
+                              <option value="admin">Administrator</option>
+                            </select>
+                          </td>
+                          <td className="px-8 py-6">
+                            <code className="text-[10px] bg-gray-100 p-1 rounded font-mono text-gray-400">{u.id}</code>
+                          </td>
+                          <td className="px-8 py-6 text-right">
+                            {u.email !== 'itssanjaydutta@gmail.com' && (
+                              <button 
+                                onClick={() => handleDeleteUser(u.id)}
+                                className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'categories' && (
+              <div className="max-w-2xl mx-auto">
+                <section className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                  <h3 className="text-xl font-serif font-bold mb-6">Product Categories</h3>
+                  
+                  <div className="flex gap-2 mb-6">
+                    <input 
+                      type="text"
+                      placeholder="Add new collection category..."
+                      className="flex-grow px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-jewelry-gold"
+                      value={newCategory}
+                      onChange={(e) => setNewCategory(e.target.value)}
+                    />
+                    <button 
+                      onClick={addCategory}
+                      className="bg-gray-900 text-white p-3 rounded-xl hover:bg-jewelry-gold transition-colors"
+                    >
+                      <Plus className="w-6 h-6" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {settings.categories.map((cat: string) => (
+                      <div key={cat} className="flex items-center justify-between bg-jewelry-cream p-4 rounded-xl">
+                        <span className="font-medium">{cat}</span>
+                        <button 
+                          onClick={() => removeCategory(cat)}
+                          className="text-red-400 hover:text-red-600"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <button 
+                    onClick={handleSaveSettings}
+                    className="w-full mt-8 bg-gray-900 text-white py-4 rounded-xl font-bold hover:bg-jewelry-gold transition-all"
+                  >
+                    Save Collection Changes
+                  </button>
+                </section>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* User Modal */}
+      {showUserModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl"
+          >
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-serif font-bold">Add Staff Member</h3>
+              <button onClick={() => setShowUserModal(false)} className="text-gray-400 hover:text-gray-600"><XCircle /></button>
+            </div>
+            
+            <form onSubmit={handleCreateUser} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Email Address</label>
+                <input 
+                  type="email"
+                  required
+                  placeholder="staff@jewels.com"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50"
+                  value={newUserForm.email}
+                  onChange={e => setNewUserForm({...newUserForm, email: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Initial Password</label>
+                <input 
+                  type="password"
+                  required
+                  minLength={6}
+                  placeholder="Min 6 characters"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50"
+                  value={newUserForm.password}
+                  onChange={e => setNewUserForm({...newUserForm, password: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Initial Role</label>
+                <select 
+                  className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50"
+                  value={newUserForm.role}
+                  onChange={e => setNewUserForm({...newUserForm, role: e.target.value})}
+                >
+                  <option value="user">Standard User</option>
+                  <option value="staff">Staff/Editor</option>
+                  <option value="admin">Administrator</option>
+                </select>
+              </div>
+
+              <div className="bg-blue-50 p-4 rounded-xl flex items-start space-x-3 mb-6">
+                <Shield className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+                <p className="text-[10px] text-blue-600 leading-relaxed">
+                  Creating a user will enable them to log in with these credentials. Ensure the staff member changes their password after their first login.
+                </p>
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={creatingUser}
+                className="w-full bg-jewelry-gold text-white py-4 rounded-xl font-bold shadow-lg shadow-jewelry-gold/20 disabled:opacity-50"
+              >
+                {creatingUser ? 'Creating System Account...' : 'Create Account'}
+              </button>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Product Modal */}
+      {showProductModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl"
+          >
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-serif font-bold">{editingProduct ? 'Edit Piece' : 'New Collection Piece'}</h3>
+              <button onClick={() => setShowProductModal(false)} className="text-gray-400 hover:text-gray-600"><XCircle /></button>
+            </div>
+            
+            <form onSubmit={handleSaveProduct} className="space-y-4">
+              <input 
+                required
+                placeholder="Name" 
+                className="w-full px-4 py-2 border rounded-xl"
+                value={productForm.name || ''}
+                onChange={e => setProductForm({...productForm, name: e.target.value})}
+              />
+              <textarea 
+                required
+                placeholder="Description" 
+                rows={3}
+                className="w-full px-4 py-2 border rounded-xl"
+                value={productForm.description || ''}
+                onChange={e => setProductForm({...productForm, description: e.target.value})}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <input 
+                  type="number"
+                  required
+                  placeholder="Price (₹)" 
+                  className="w-full px-4 py-2 border rounded-xl"
+                  value={productForm.price ?? 0}
+                  onChange={e => setProductForm({...productForm, price: Number(e.target.value)})}
+                />
+                <select 
+                  className="w-full px-4 py-2 border rounded-xl"
+                  value={productForm.category || ''}
+                  onChange={e => setProductForm({...productForm, category: e.target.value})}
+                >
+                  {settings.categories.map((cat: string) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+              <input 
+                type="number"
+                required
+                placeholder="Stock" 
+                className="w-full px-4 py-2 border rounded-xl"
+                value={productForm.stock ?? 0}
+                onChange={e => setProductForm({...productForm, stock: Number(e.target.value)})}
+              />
+              
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Product Image</label>
+                <div className="flex gap-4 items-start">
+                  {productForm.images?.[0] && (
+                    <img 
+                      src={productForm.images[0]} 
+                      className="w-20 h-20 rounded-lg object-cover border border-gray-100" 
+                      alt="Preview"
+                    />
+                  )}
+                  <div className="flex-grow">
+                    <div className="relative">
+                      <input 
+                        type="file" 
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden" 
+                        id="product-image-upload"
+                      />
+                      <label 
+                        htmlFor="product-image-upload"
+                        className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-xl border-2 border-dashed transition-all cursor-pointer ${uploadingImage ? 'bg-gray-50 border-gray-200' : 'border-jewelry-gold/20 hover:border-jewelry-gold/50'}`}
+                      >
+                        <Upload className={`w-5 h-5 ${uploadingImage ? 'animate-bounce text-gray-400' : 'text-jewelry-gold'}`} />
+                        <span className="text-sm font-medium text-gray-600">
+                          {uploadingImage ? 'Processing...' : (productForm.images?.[0] ? 'Change Image' : 'Upload Image')}
+                        </span>
+                      </label>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1 italic">Max size: 800KB. Using URLs is also supported via field below.</p>
+                  </div>
+                </div>
+              </div>
+
+              <input 
+                placeholder="Or Image URL" 
+                className="w-full px-4 py-2 border rounded-xl text-xs"
+                value={productForm.images?.[0]?.startsWith('data:') ? '' : (productForm.images?.[0] || '')}
+                onChange={e => setProductForm({...productForm, images: [e.target.value]})}
+              />
+              <button type="submit" disabled={uploadingImage} className="w-full bg-jewelry-gold text-white py-3 rounded-xl font-bold mt-4 shadow-lg shadow-jewelry-gold/20 disabled:opacity-50">
+                {editingProduct ? 'Save Changes' : 'Launch Piece'}
+              </button>
+            </form>
+          </motion.div>
+        </div>
+      )}
+    </div>
+  );
+}
